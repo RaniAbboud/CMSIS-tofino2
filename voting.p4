@@ -9,13 +9,18 @@
 #endif
 
 /* CONSTANTS */
-#define COUNTERS_ARRAY_SIZE 2048
-#define FLOW_ID_ARRAY_SIZE 512
+#define REGISTER_ARRAY_SIZE 1024
+#define HASH_WIDTH 10
 
 header ethernet_t {
     bit<48> dstAddr;
     bit<48> srcAddr;
     bit<16> etherType;
+}
+
+header voting_sketch_t {
+    bit<8> flow_id_match_count;
+    bit<32> freq_estimation;
 }
 
 /*
@@ -25,6 +30,7 @@ header ethernet_t {
  */
 struct header_t {
     ethernet_t              ethernet;
+    voting_sketch_t         sketch;
 }
 
 /*
@@ -35,7 +41,24 @@ struct header_t {
  */
 struct metadata_t {
     bit<32> packet_count;
-    bit<32> random_value;
+    bit<32> random_number;
+    // 128-bit flow ID
+    bit<64> flow_id_part1; // will change while shifting
+    bit<64> flow_id_part2; // will change while shifting
+    bit<64> flow_id_part1_original; // used as a constant
+    bit<64> flow_id_part2_original; // used as a constant
+
+    bool flow_id_stage1_part1_match;
+    bool flow_id_stage1_part2_match;
+    bool flow_id_stage2_part1_match;
+    bool flow_id_stage2_part2_match;
+    bool flow_id_stage3_part1_match;
+    bool flow_id_stage3_part2_match;
+
+    bit<2> _padding;
+
+    bit<32> index;
+    bit<8> flow_id_match_count;
 }
 
 #include "./common/util.p4"
@@ -51,6 +74,12 @@ parser MyIngressParser(packet_in packet,
     state start {
         tofino_parser.apply(packet, ig_intr_md);
         packet.extract(hdr.ethernet);
+
+        ig_md.flow_id_part1 = (bit<64>)hdr.ethernet.srcAddr;
+        ig_md.flow_id_part1_original = (bit<64>)hdr.ethernet.srcAddr;
+        ig_md.flow_id_part2 = (bit<64>)hdr.ethernet.dstAddr;
+        ig_md.flow_id_part2_original = (bit<64>)hdr.ethernet.dstAddr;
+
         transition accept;
     }
 }
@@ -69,15 +98,50 @@ control MyIngress(inout header_t hdr,
      ************************************************************/
     Random<bit<32>>() random_number_generator;
     // instantiate a Hash extern named 'hash'
-    Hash<bit<16>>(HashAlgorithm_t.CRC16) hash;
+    Hash<bit<HASH_WIDTH>>(HashAlgorithm_t.CRC16) hash;
 
-    Register<bit<32>,_>(COUNTERS_ARRAY_SIZE, 0) counters_stage0;
+    Register<bit<32>,_>(REGISTER_ARRAY_SIZE, 0) counters_stage0;
     RegisterAction<bit<32>,_,bit<32>>(counters_stage0) inc_counter_and_read = {
         void apply(inout bit<32> value, out bit<32> rv) {
             value = value |+| 1;
             rv = value;
         }
     };
+
+    // Stage #1
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage1_part1;
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage1_part2;
+    // Stage #2
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage2_part1;
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage2_part2;
+    // Stage #3
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage3_part1;
+    Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage3_part2;
+
+    #define Reg_Actions_Match_And_Replace_ID(S,P) \
+    RegisterAction2<bit<64>,_,bit<1>, bit<64>>(reg_flow_id_stage## S ##_part## P ##) replace_flow_id_stage## S ##_part## P ## = {       \
+        void apply(inout bit<64> value, out bit<1> match, out bit<64> new_flow_id_part){            \
+            match = 0;                                                                              \
+            new_flow_id_part = 0;                                                                   \
+            if (value == ig_md.flow_id_part## P ##_original){                                       \
+                match = 1;                                                                          \
+            }                                                                                       \
+            if (ig_md.random_number == 0) {                                                         \
+                bit<64> tmp = ig_md.flow_id_part## P ##;                                            \
+                new_flow_id_part = value;                                                           \
+                value = tmp;                                                                        \
+            }                                                                                       \
+        }                                                                                           \
+    };                                                                                              \
+    action exec_replace_flow_id_stage## S ##_part## P ##(){ ig_md.flow_id_stage## S ##_part## P ##_match=(bool)replace_flow_id_stage## S ##_part## P ##.execute(ig_md.index, ig_md.flow_id_part## P ##);}  \
+
+    // TODO: In RegisterAction2, we read and write to the metadata field, this is causing the PHV allocation error.
+    Reg_Actions_Match_And_Replace_ID(1,1)
+    Reg_Actions_Match_And_Replace_ID(1,2)
+    Reg_Actions_Match_And_Replace_ID(2,1)
+    Reg_Actions_Match_And_Replace_ID(2,2)
+    Reg_Actions_Match_And_Replace_ID(3,1)
+    Reg_Actions_Match_And_Replace_ID(3,2)
 
     action send_back() {
         bit<48> tmp;
@@ -95,10 +159,8 @@ control MyIngress(inout header_t hdr,
         mark_to_drop(ig_dprsr_md);
     }
 
-    action insert_wp(bit<32> mask) {
-        if(mask & ig_md.random_value == 0){
-            // TODO: insert flow
-        }
+    action apply_mask_on_coin(bit<32> coin_mask) {
+        ig_md.random_number = ig_md.random_number & coin_mask;
     }
 
     table approximate_coin_flip {
@@ -106,57 +168,80 @@ control MyIngress(inout header_t hdr,
             ig_md.packet_count : range;
         }
         actions = {
-            insert_wp;
+            apply_mask_on_coin;
         }
-        counters = packet_size_stats;
         size = 32;
         const entries = {
-            0 ..  3 : insert_wp(32w0b_0001);
-            3 ..  5 : insert_wp(32w0b_0011);
-            5 ..  9 : insert_wp(32w0b_0111);
-            9 ..  17 : insert_wp(32w0b_1111);
-            17 ..  33 : insert_wp(32w0b_1_1111);
-            33 ..  65 : insert_wp(32w0b_11_1111);
-            65 ..  129 : insert_wp(32w0b_111_1111);
-            129 ..  257 : insert_wp(32w0b_1111_1111);
-            257 ..  513 : insert_wp(32w0b_1_1111_1111);
-            513 ..  1025 : insert_wp(32w0b_11_1111_1111);
-            1025 ..  2049 : insert_wp(32w0b_111_1111_1111);
-            2049 ..  4097 : insert_wp(32w0b_1111_1111_1111);
-            4097 ..  8193 : insert_wp(32w0b_1_1111_1111_1111);
-            8193 ..  16385 : insert_wp(32w0b_11_1111_1111_1111);
-            16385 ..  32769 : insert_wp(32w0b_111_1111_1111_1111);
-            32769 ..  65537 : insert_wp(32w0b_1111_1111_1111_1111);
-            65537 ..  131073 : insert_wp(32w0b_1_1111_1111_1111_1111);
-            131073 ..  262145 : insert_wp(32w0b_11_1111_1111_1111_1111);
-            262145 ..  524289 : insert_wp(32w0b_111_1111_1111_1111_1111);
-            524289 ..  1048577 : insert_wp(32w0b_1111_1111_1111_1111_1111);
-            1048577 ..  2097153 : insert_wp(32w0b_1_1111_1111_1111_1111_1111);
-            2097153 ..  4194305 : insert_wp(32w0b_11_1111_1111_1111_1111_1111);
-            4194305 ..  8388609 : insert_wp(32w0b_111_1111_1111_1111_1111_1111);
-            8388609 ..  16777217 : insert_wp(32w0b_1111_1111_1111_1111_1111_1111);
-            16777217 ..  33554433 : insert_wp(32w0b_1_1111_1111_1111_1111_1111_1111);
-            33554433 ..  67108865 : insert_wp(32w0b_11_1111_1111_1111_1111_1111_1111);
-            67108865 ..  134217729 : insert_wp(32w0b_111_1111_1111_1111_1111_1111_1111);
-            134217729 ..  268435457 : insert_wp(32w0b_1111_1111_1111_1111_1111_1111_1111);
-            268435457 ..  536870913 : insert_wp(32w0b_1_1111_1111_1111_1111_1111_1111_1111);
-            536870913 ..  1073741825 : insert_wp(32w0b_11_1111_1111_1111_1111_1111_1111_1111);
-            1073741825 ..  2147483649 : insert_wp(32w0b_111_1111_1111_1111_1111_1111_1111_1111);
-            2147483649 ..  4294967295 : insert_wp(32w0b_1111_1111_1111_1111_1111_1111_1111_1111);
+            0 ..  3 : apply_mask_on_coin(32w0b_0001);
+            3 ..  5 : apply_mask_on_coin(32w0b_0011);
+            5 ..  9 : apply_mask_on_coin(32w0b_0111);
+            9 ..  17 : apply_mask_on_coin(32w0b_1111);
+            17 ..  33 : apply_mask_on_coin(32w0b_1_1111);
+            33 ..  65 : apply_mask_on_coin(32w0b_11_1111);
+            65 ..  129 : apply_mask_on_coin(32w0b_111_1111);
+            129 ..  257 : apply_mask_on_coin(32w0b_1111_1111);
+            257 ..  513 : apply_mask_on_coin(32w0b_1_1111_1111);
+            513 ..  1025 : apply_mask_on_coin(32w0b_11_1111_1111);
+            1025 ..  2049 : apply_mask_on_coin(32w0b_111_1111_1111);
+            2049 ..  4097 : apply_mask_on_coin(32w0b_1111_1111_1111);
+            4097 ..  8193 : apply_mask_on_coin(32w0b_1_1111_1111_1111);
+            8193 ..  16385 : apply_mask_on_coin(32w0b_11_1111_1111_1111);
+            16385 ..  32769 : apply_mask_on_coin(32w0b_111_1111_1111_1111);
+            32769 ..  65537 : apply_mask_on_coin(32w0b_1111_1111_1111_1111);
+            65537 ..  131073 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111);
+            131073 ..  262145 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111);
+            262145 ..  524289 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111);
+            524289 ..  1048577 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111);
+            1048577 ..  2097153 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111);
+            2097153 ..  4194305 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111);
+            4194305 ..  8388609 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111);
+            8388609 ..  16777217 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111);
+            16777217 ..  33554433 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111);
+            33554433 ..  67108865 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111);
+            67108865 ..  134217729 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111);
+            134217729 ..  268435457 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111);
+            268435457 ..  536870913 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111_1111);
+            536870913 ..  1073741825 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111_1111);
+            1073741825 ..  2147483649 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111_1111);
+            2147483649 ..  4294967295 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111_1111);
         }
     }
 
     apply {
+        ig_md.random_number = random_number_generator.get();
         // calculate the hash of the concatenation of a few fields
-        bit<16> reg_index = hash.get({ 
+        ig_md.index = (bit<32>)hash.get({ 
             hdr.ethernet.srcAddr,
             hdr.ethernet.dstAddr 
         });
         // increment the entry's counter and get its updated value
-        ig_md.packet_count = inc_counter_and_read.execute(reg_index);
-        // estimate insertion probability and flip a coin.
-        ig_md.random_value = random_number_generator.get();
+        ig_md.packet_count = inc_counter_and_read.execute(ig_md.index);
+        approximate_coin_flip.apply(); // masks the ig_md.random_number, depending on the counter's value
+            // insert flow ID while shifting (only if random_number=0, otherwise only match and count)
+            exec_replace_flow_id_stage1_part1();
+            exec_replace_flow_id_stage1_part2();
+            ig_md.flow_id_match_count = 0;
+            // update match count stage1
+            if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
+                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+            }
+            exec_replace_flow_id_stage2_part1();
+            exec_replace_flow_id_stage2_part2();
+            // update match count stage2
+            if (ig_md.flow_id_stage2_part1_match && ig_md.flow_id_stage2_part2_match){
+                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+            }
+            exec_replace_flow_id_stage3_part1();
+            exec_replace_flow_id_stage3_part2();
+            // update match count stage3
+            if (ig_md.flow_id_stage3_part1_match && ig_md.flow_id_stage3_part2_match){
+                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+            }
+    
 
+        hdr.sketch.freq_estimation = ig_md.packet_count;
+        hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
+        hdr.sketch.setValid();
     }
 }
 
@@ -169,7 +254,7 @@ control MyIngressDeparser(
         in metadata_t ig_md,
         in ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md) {
     apply {
-        packet.emit(hdr.ethernet);
+        packet.emit(hdr);
     }
 }
 
