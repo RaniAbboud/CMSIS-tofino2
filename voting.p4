@@ -40,11 +40,16 @@ struct header_t {
  * because it is done "by the architecture", i.e. outside of P4 functions
  */
 struct metadata_t {
-    bit<32> packet_count;
+    bit<20> packet_count;
     bit<32> random_number;
+    bit<32> index;
     // 128-bit flow ID
-    bit<64> flow_id_part1; // will change while shifting
-    bit<64> flow_id_part2; // will change while shifting
+    bit<64> flow_id_stage1_part1_old;
+    bit<64> flow_id_stage1_part2_old;
+    bit<64> flow_id_stage2_part1_old;
+    bit<64> flow_id_stage2_part2_old;
+    bit<64> flow_id_stage3_part1_old;
+    bit<64> flow_id_stage3_part2_old;    
     bit<64> flow_id_part1_original; // used as a constant
     bit<64> flow_id_part2_original; // used as a constant
 
@@ -57,7 +62,6 @@ struct metadata_t {
 
     bit<2> _padding;
 
-    bit<32> index;
     bit<8> flow_id_match_count;
 }
 
@@ -75,9 +79,9 @@ parser MyIngressParser(packet_in packet,
         tofino_parser.apply(packet, ig_intr_md);
         packet.extract(hdr.ethernet);
 
-        ig_md.flow_id_part1 = (bit<64>)hdr.ethernet.srcAddr;
+        // ig_md.flow_id_part1 = (bit<64>)hdr.ethernet.srcAddr;
         ig_md.flow_id_part1_original = (bit<64>)hdr.ethernet.srcAddr;
-        ig_md.flow_id_part2 = (bit<64>)hdr.ethernet.dstAddr;
+        // ig_md.flow_id_part2 = (bit<64>)hdr.ethernet.dstAddr;
         ig_md.flow_id_part2_original = (bit<64>)hdr.ethernet.dstAddr;
 
         transition accept;
@@ -119,29 +123,58 @@ control MyIngress(inout header_t hdr,
     Register<bit<64>,_>(REGISTER_ARRAY_SIZE, 0) reg_flow_id_stage3_part2;
 
     #define Reg_Actions_Match_And_Replace_ID(S,P) \
-    RegisterAction2<bit<64>,_,bit<1>, bit<64>>(reg_flow_id_stage## S ##_part## P ##) replace_flow_id_stage## S ##_part## P ## = {       \
-        void apply(inout bit<64> value, out bit<1> match, out bit<64> new_flow_id_part){            \
-            match = 0;                                                                              \
-            new_flow_id_part = 0;                                                                   \
-            if (value == ig_md.flow_id_part## P ##_original){                                       \
-                match = 1;                                                                          \
-            }                                                                                       \
-            if (ig_md.random_number == 0) {                                                         \
-                bit<64> tmp = ig_md.flow_id_part## P ##;                                            \
-                new_flow_id_part = value;                                                           \
-                value = tmp;                                                                        \
-            }                                                                                       \
+    RegisterAction<bit<64>,_,bool>(reg_flow_id_stage## S ##_part## P ##) match_flow_id_stage## S ##_part## P ## = {       \
+        void apply(inout bit<64> value, out bool match){            \
+            match = (value == ig_md.flow_id_part## P ##_original);                                  \
         }                                                                                           \
     };                                                                                              \
-    action exec_replace_flow_id_stage## S ##_part## P ##(){ ig_md.flow_id_stage## S ##_part## P ##_match=(bool)replace_flow_id_stage## S ##_part## P ##.execute(ig_md.index, ig_md.flow_id_part## P ##);}  \
+    action exec_match_flow_id_stage## S ##_part## P ##(){ ig_md.flow_id_stage## S ##_part## P ##_match=match_flow_id_stage## S ##_part## P ##.execute(ig_md.index);}  
+//    action exec_replace_flow_id_stage## S ##_part## P ##(){ ig_md.flow_id_stage## S ##_part## P ##_match=(bool)replace_flow_id_stage## S ##_part## P ##.execute(ig_md.index, ig_md.flow_id_part## P ##);}  \
+    // RegisterAction2<bit<64>,_,bit<1>, bit<64>>(reg_flow_id_stage## S ##_part## P ##) replace_flow_id_stage## S ##_part## P ## = {       \
+    //     void apply(inout bit<64> value, out bit<1> match, out bit<64> new_flow_id_part){            \
+    //         match = 0;                                                                              \
+    //         new_flow_id_part = 0;                                                                   \
+    //         if (value == ig_md.flow_id_part## P ##_original){                                       \
+    //             match = 1;                                                                          \
+    //         }                                                                                       \
+    //         if (ig_md.random_number == 0) {                                                         \
+    //             bit<64> tmp = ig_md.flow_id_part## P ##;                                            \
+    //             new_flow_id_part = value;                                                           \
+    //             value = tmp;                                                                        \
+    //         }                                                                                       \
+    //     }                                                                                           \
+    // };                
 
-    // TODO: In RegisterAction2, we read and write to the metadata field, this is causing the PHV allocation error.
     Reg_Actions_Match_And_Replace_ID(1,1)
     Reg_Actions_Match_And_Replace_ID(1,2)
     Reg_Actions_Match_And_Replace_ID(2,1)
     Reg_Actions_Match_And_Replace_ID(2,2)
     Reg_Actions_Match_And_Replace_ID(3,1)
     Reg_Actions_Match_And_Replace_ID(3,2)
+
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_part1_original; } }; action exec_replace_flow_id_stage1_part1(){ ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_part2_original; } }; action exec_replace_flow_id_stage1_part2(){ ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_stage1_part1_old; } }; action exec_replace_flow_id_stage2_part1(){ ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_stage1_part2_old; } }; action exec_replace_flow_id_stage2_part2(){ ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_stage2_part1_old; } }; action exec_replace_flow_id_stage3_part1(){ ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index, ig_md.flow_id_stage3_part1_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_stage2_part2_old; } }; action exec_replace_flow_id_stage3_part2(){ ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index, ig_md.flow_id_stage3_part2_old);}
+
+    action generate_random_number() {
+        ig_md.random_number = random_number_generator.get();
+    }
+
+    action generate_packet_hash() {
+        // calculate the hash of the concatenation of a few fields
+        ig_md.index = (bit<32>)hash.get({ 
+            hdr.ethernet.srcAddr,
+            hdr.ethernet.dstAddr 
+        });
+    }
+
+    action get_inc_packet_count() {
+        // increment the entry's counter and get its updated value
+        ig_md.packet_count = (bit<20>)inc_counter_and_read.execute(ig_md.index);
+    }
 
     action send_back() {
         bit<48> tmp;
@@ -191,55 +224,59 @@ control MyIngress(inout header_t hdr,
             65537 ..  131073 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111);
             131073 ..  262145 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111);
             262145 ..  524289 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111);
-            524289 ..  1048577 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111);
-            1048577 ..  2097153 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111);
-            2097153 ..  4194305 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111);
-            4194305 ..  8388609 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111);
-            8388609 ..  16777217 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111);
-            16777217 ..  33554433 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111);
-            33554433 ..  67108865 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111);
-            67108865 ..  134217729 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111);
-            134217729 ..  268435457 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111);
-            268435457 ..  536870913 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111_1111);
-            536870913 ..  1073741825 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111_1111);
-            1073741825 ..  2147483649 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111_1111);
-            2147483649 ..  4294967295 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111_1111);
+            //524289 ..  1048577 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111);
+            524289 ..  999999 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111);
+            // 1048577 ..  2097153 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111);
+            // 2097153 ..  4194305 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111);
+            // 4194305 ..  8388609 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111);
+            // 8388609 ..  16777217 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111);
+            // 16777217 ..  33554433 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111);
+            // 33554433 ..  67108865 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111);
+            // 67108865 ..  134217729 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111);
+            // 134217729 ..  268435457 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111);
+            // 268435457 ..  536870913 : apply_mask_on_coin(32w0b_1_1111_1111_1111_1111_1111_1111_1111);
+            // 536870913 ..  1073741825 : apply_mask_on_coin(32w0b_11_1111_1111_1111_1111_1111_1111_1111);
+            // 1073741825 ..  2147483649 : apply_mask_on_coin(32w0b_111_1111_1111_1111_1111_1111_1111_1111);
+            // 2147483649 ..  4294967295 : apply_mask_on_coin(32w0b_1111_1111_1111_1111_1111_1111_1111_1111);
         }
     }
 
     apply {
-        ig_md.random_number = random_number_generator.get();
-        // calculate the hash of the concatenation of a few fields
-        ig_md.index = (bit<32>)hash.get({ 
-            hdr.ethernet.srcAddr,
-            hdr.ethernet.dstAddr 
-        });
-        // increment the entry's counter and get its updated value
-        ig_md.packet_count = inc_counter_and_read.execute(ig_md.index);
+        generate_random_number();
+        generate_packet_hash();
+        get_inc_packet_count();
         approximate_coin_flip.apply(); // masks the ig_md.random_number, depending on the counter's value
+        if( ig_md.random_number == 0 ){
             // insert flow ID while shifting (only if random_number=0, otherwise only match and count)
             exec_replace_flow_id_stage1_part1();
             exec_replace_flow_id_stage1_part2();
-            ig_md.flow_id_match_count = 0;
-            // update match count stage1
-            if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
-                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
-            }
             exec_replace_flow_id_stage2_part1();
             exec_replace_flow_id_stage2_part2();
-            // update match count stage2
-            if (ig_md.flow_id_stage2_part1_match && ig_md.flow_id_stage2_part2_match){
-                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
-            }
             exec_replace_flow_id_stage3_part1();
             exec_replace_flow_id_stage3_part2();
-            // update match count stage3
-            if (ig_md.flow_id_stage3_part1_match && ig_md.flow_id_stage3_part2_match){
-                ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
-            }
+        } else {
+            exec_match_flow_id_stage1_part1();
+            exec_match_flow_id_stage1_part2();
+            exec_match_flow_id_stage2_part1();
+            exec_match_flow_id_stage2_part2();
+            exec_match_flow_id_stage3_part1();
+            exec_match_flow_id_stage3_part2();
+        }
+        ig_md.flow_id_match_count = 0;
+        // update match count stage1
+        if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
+            ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+        }
+        // update match count stage2
+        if (ig_md.flow_id_stage2_part1_match && ig_md.flow_id_stage2_part2_match){
+            ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+        }
+        // update match count stage3
+        if (ig_md.flow_id_stage3_part1_match && ig_md.flow_id_stage3_part2_match){
+            ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
+        }
     
-
-        hdr.sketch.freq_estimation = ig_md.packet_count;
+        hdr.sketch.freq_estimation = (bit<32>)ig_md.packet_count;
         hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
         hdr.sketch.setValid();
     }
