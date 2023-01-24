@@ -48,8 +48,7 @@ struct metadata_t {
     bit<64> flow_id_stage1_part2_old;
     bit<64> flow_id_stage2_part1_old;
     bit<64> flow_id_stage2_part2_old;
-    bit<64> flow_id_stage3_part1_old;
-    bit<64> flow_id_stage3_part2_old;    
+  
     bit<64> flow_id_part1_original; // used as a constant
     bit<64> flow_id_part2_original; // used as a constant
 
@@ -152,12 +151,12 @@ control MyIngress(inout header_t hdr,
     Reg_Actions_Match_And_Replace_ID(3,1)
     Reg_Actions_Match_And_Replace_ID(3,2)
 
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_part1_original; } }; action exec_replace_flow_id_stage1_part1(){ ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);}
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_part2_original; } }; action exec_replace_flow_id_stage1_part2(){ ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);}
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_stage1_part1_old; } }; action exec_replace_flow_id_stage2_part1(){ ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);}
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_stage1_part2_old; } }; action exec_replace_flow_id_stage2_part2(){ ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);}
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part1_original); new_flow_id_part = value; value = ig_md.flow_id_stage2_part1_old; } }; action exec_replace_flow_id_stage3_part1(){ ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index, ig_md.flow_id_stage3_part1_old);}
-    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> new_flow_id_part){ match = (value == ig_md.flow_id_part2_original); new_flow_id_part = value; value = ig_md.flow_id_stage2_part2_old; } }; action exec_replace_flow_id_stage3_part2(){ ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index, ig_md.flow_id_stage3_part2_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> old_flow_id_part){ match = (value == ig_md.flow_id_part1_original); old_flow_id_part = value; value = ig_md.flow_id_part1_original; } }; action exec_replace_flow_id_stage1_part1(){ ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> old_flow_id_part){ match = (value == ig_md.flow_id_part2_original); old_flow_id_part = value; value = ig_md.flow_id_part2_original; } }; action exec_replace_flow_id_stage1_part2(){ ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { void apply(inout bit<64> value, out bool match, out bit<64> old_flow_id_part){ match = (value == ig_md.flow_id_part1_original); old_flow_id_part = value; value = ig_md.flow_id_stage1_part1_old; } }; action exec_replace_flow_id_stage2_part1(){ ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);}
+    RegisterAction2<bit<64>,_,bool, bit<64>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { void apply(inout bit<64> value, out bool match, out bit<64> old_flow_id_part){ match = (value == ig_md.flow_id_part2_original); old_flow_id_part = value; value = ig_md.flow_id_stage1_part2_old; } }; action exec_replace_flow_id_stage2_part2(){ ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);}
+    RegisterAction<bit<64>,_,bool>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { void apply(inout bit<64> value, out bool match){ match = (value == ig_md.flow_id_part1_original); value = ig_md.flow_id_stage2_part1_old; } }; action exec_replace_flow_id_stage3_part1(){ ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index);}
+    RegisterAction<bit<64>,_,bool>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { void apply(inout bit<64> value, out bool match){ match = (value == ig_md.flow_id_part2_original); value = ig_md.flow_id_stage2_part2_old; } }; action exec_replace_flow_id_stage3_part2(){ ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index);}
 
     action generate_random_number() {
         ig_md.random_number = random_number_generator.get();
@@ -246,21 +245,37 @@ control MyIngress(inout header_t hdr,
         generate_packet_hash();
         get_inc_packet_count();
         approximate_coin_flip.apply(); // masks the ig_md.random_number, depending on the counter's value
+        
+        @stage(3) {
         if( ig_md.random_number == 0 ){
-            // insert flow ID while shifting (only if random_number=0, otherwise only match and count)
-            exec_replace_flow_id_stage1_part1();
-            exec_replace_flow_id_stage1_part2();
-            exec_replace_flow_id_stage2_part1();
-            exec_replace_flow_id_stage2_part2();
-            exec_replace_flow_id_stage3_part1();
-            exec_replace_flow_id_stage3_part2();
+            ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);
+            ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);
         } else {
-            exec_match_flow_id_stage1_part1();
-            exec_match_flow_id_stage1_part2();
-            exec_match_flow_id_stage2_part1();
-            exec_match_flow_id_stage2_part2();
-            exec_match_flow_id_stage3_part1();
-            exec_match_flow_id_stage3_part2();
+            ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.index);
+            ig_md.flow_id_stage1_part1_old = 0;
+            ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.index);
+            ig_md.flow_id_stage1_part2_old = 0;
+        }
+        }
+        @stage(4) {
+        if( ig_md.random_number == 0 ){
+            ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);
+            ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);
+        } else {
+            ig_md.flow_id_stage2_part1_match=match_flow_id_stage2_part1.execute(ig_md.index);
+            ig_md.flow_id_stage2_part1_old = 0;
+            ig_md.flow_id_stage2_part2_match=match_flow_id_stage2_part2.execute(ig_md.index);
+            ig_md.flow_id_stage2_part2_old = 0;
+        }
+        }
+        @stage(5) {
+        if( ig_md.random_number == 0 ){
+            ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index);
+            ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index);
+        } else {
+            ig_md.flow_id_stage3_part1_match=match_flow_id_stage3_part1.execute(ig_md.index);
+            ig_md.flow_id_stage3_part2_match=match_flow_id_stage3_part2.execute(ig_md.index);
+        }
         }
         ig_md.flow_id_match_count = 0;
         // update match count stage1
@@ -275,7 +290,6 @@ control MyIngress(inout header_t hdr,
         if (ig_md.flow_id_stage3_part1_match && ig_md.flow_id_stage3_part2_match){
             ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
         }
-    
         hdr.sketch.freq_estimation = (bit<32>)ig_md.packet_count;
         hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
         hdr.sketch.setValid();
