@@ -162,16 +162,12 @@ control MyIngress(inout header_t hdr,
         ig_md.random_number = random_number_generator.get();
     }
 
-    action generate_packet_hash() {
+    action generate_hash_and_update_count() {
         // calculate the hash of the concatenation of a few fields
         ig_md.index = (bit<32>)hash.get({ 
             hdr.ethernet.srcAddr,
             hdr.ethernet.dstAddr 
         });
-    }
-
-    action get_inc_packet_count() {
-        // increment the entry's counter and get its updated value
         ig_md.packet_count = (bit<20>)inc_counter_and_read.execute(ig_md.index);
     }
 
@@ -242,41 +238,38 @@ control MyIngress(inout header_t hdr,
 
     apply {
         generate_random_number();
-        generate_packet_hash();
-        get_inc_packet_count();
+        generate_hash_and_update_count();
         approximate_coin_flip.apply(); // masks the ig_md.random_number, depending on the counter's value
         
-        @stage(3) {
+        
         if( ig_md.random_number == 0 ){
-            ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);
-            ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);
+            @stage(2) {
+                ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);
+                ig_md.flow_id_stage1_part2_match=replace_flow_id_stage1_part2.execute(ig_md.index, ig_md.flow_id_stage1_part2_old);
+            }
+            @stage(3) {
+                ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);
+                ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);
+            }
+            @stage(4) {
+                ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index);
+                ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index);
+            }
         } else {
-            ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.index);
-            ig_md.flow_id_stage1_part1_old = 0;
-            ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.index);
-            ig_md.flow_id_stage1_part2_old = 0;
+            @stage(2) {
+                ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.index);
+                ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.index);
+            }
+            @stage(3) {
+                ig_md.flow_id_stage2_part1_match=match_flow_id_stage2_part1.execute(ig_md.index);
+                ig_md.flow_id_stage2_part2_match=match_flow_id_stage2_part2.execute(ig_md.index);
+            }
+            @stage(4) {
+                ig_md.flow_id_stage3_part1_match=match_flow_id_stage3_part1.execute(ig_md.index);
+                ig_md.flow_id_stage3_part2_match=match_flow_id_stage3_part2.execute(ig_md.index);
+            }
         }
-        }
-        @stage(4) {
-        if( ig_md.random_number == 0 ){
-            ig_md.flow_id_stage2_part1_match=replace_flow_id_stage2_part1.execute(ig_md.index, ig_md.flow_id_stage2_part1_old);
-            ig_md.flow_id_stage2_part2_match=replace_flow_id_stage2_part2.execute(ig_md.index, ig_md.flow_id_stage2_part2_old);
-        } else {
-            ig_md.flow_id_stage2_part1_match=match_flow_id_stage2_part1.execute(ig_md.index);
-            ig_md.flow_id_stage2_part1_old = 0;
-            ig_md.flow_id_stage2_part2_match=match_flow_id_stage2_part2.execute(ig_md.index);
-            ig_md.flow_id_stage2_part2_old = 0;
-        }
-        }
-        @stage(5) {
-        if( ig_md.random_number == 0 ){
-            ig_md.flow_id_stage3_part1_match=replace_flow_id_stage3_part1.execute(ig_md.index);
-            ig_md.flow_id_stage3_part2_match=replace_flow_id_stage3_part2.execute(ig_md.index);
-        } else {
-            ig_md.flow_id_stage3_part1_match=match_flow_id_stage3_part1.execute(ig_md.index);
-            ig_md.flow_id_stage3_part2_match=match_flow_id_stage3_part2.execute(ig_md.index);
-        }
-        }
+        
         ig_md.flow_id_match_count = 0;
         // update match count stage1
         if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
