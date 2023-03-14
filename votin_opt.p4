@@ -122,25 +122,25 @@ control MyIngress(inout header_t hdr,
     Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x10589, false, false, false, 0x0001, 0x0001)) hash_id_stage2; // crc_16_dect
     Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x13D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
 
-    DirectRegister<bit<32>>(0) packet_counter;
-    DirectRegisterAction<bit<32>,bit<32>>(packet_counter) inc_and_get_packet_counter = {
-        void apply(inout bit<32> value, out bit<32> rv) {
+    DirectRegister<int<32>>(0) packet_counter;
+    DirectRegisterAction<int<32>,int<32>>(packet_counter) inc_and_get_packet_counter = {
+        void apply(inout int<32> value, int<32> rv) {
             value = value |+| 1;
             rv = value;
         }
     };
 
-    Register<bit<32>,_>(COUNTER_ARRAY_SIZE, 0) reg_counters_stage1;
-    RegisterAction<bit<32>,_,bit<32>>(reg_counters_stage1) inc_counter_and_read_stage1 = {
-        void apply(inout bit<32> value, out bit<32> rv) {
+    Register<int<32>,_>(COUNTER_ARRAY_SIZE, 0) reg_counters_stage1;
+    RegisterAction<int<32>,_,int<32>>(reg_counters_stage1) inc_counter_and_read_stage1 = {
+        void apply(inout int<32> value, int<32> rv) {
             value = value |+| 1;
             rv = value;
         }
     };
 
     Register<bit<32>,_>(COUNTER_ARRAY_SIZE, 0) reg_counters_stage2;
-    RegisterAction<bit<32>,_,bit<32>>(reg_counters_stage2) inc_counter_and_read_stage2 = {
-        void apply(inout bit<32> value, out bit<32> rv) {
+    RegisterAction<int<32>,_,int<32>>(reg_counters_stage2) inc_counter_and_read_stage2 = {
+        void apply(inout int<32> value, out int<32> rv) {
             value = value |+| 1;
             rv = value;
         }
@@ -293,16 +293,16 @@ control MyIngress(inout header_t hdr,
 
     apply {
         // calculate the threshold N//Theta
-        bit<32> insertion_threshold = inc_and_get_packet_counter.execute(); 
+        int<32> insertion_threshold = inc_and_get_packet_counter.execute(); 
         ig_md.insertion_threshold = insertion_threshold >> THETA_SHIFT;
 
         generate_random_number();
         get_count_stage1_hash();
         get_count_stage2_hash();
-        bit<32> stage1_count = inc_counter_and_read_stage1.execute(ig_md.count_stage1_index);
-        bit<32> stage2_count = inc_counter_and_read_stage2.execute(ig_md.count_stage2_index);
+        int<32> stage1_count = inc_counter_and_read_stage1.execute(ig_md.count_stage1_index);
+        int<32> stage2_count = inc_counter_and_read_stage2.execute(ig_md.count_stage2_index);
         
-        if(stage1_count - ig_md.insertion_threshold >= 0 && (stage2_count - ig_md.insertion_threshold >= 0) && ig_md.random_number == 0){
+        if((stage1_count - ig_md.insertion_threshold >= 0) && (stage2_count - ig_md.insertion_threshold >= 0) && ig_md.random_number == 0){
             ig_md.should_replace = true;
         }
         
@@ -333,11 +333,8 @@ control MyIngress(inout header_t hdr,
         }
 
         // choose the minimum count value as the frequency estimation
-        if(stage1_count - stage2_count < 0) {
-            hdr.sketch.freq_estimation = stage1_count;
-        } else {
-            hdr.sketch.freq_estimation = stage2_count;
-        }
+        hdr.sketch.freq_estimation = min(stage1_count, stage2_count)
+
         hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
         hdr.sketch.number_of_id_stages = 3;
         hdr.sketch.setValid();

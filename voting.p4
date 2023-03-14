@@ -11,6 +11,7 @@
 /* CONSTANTS */
 #define REGISTER_ARRAY_SIZE 1024
 #define HASH_WIDTH 10
+// #define THETA_SHIFT 12
 
 header ethernet_t {
     bit<48> dstAddr;
@@ -20,6 +21,7 @@ header ethernet_t {
 
 header voting_sketch_t {
     bit<8> flow_id_match_count;
+    bit<8> number_of_id_stages;
     bit<32> freq_estimation;
 }
 
@@ -102,6 +104,14 @@ control MyIngress(inout header_t hdr,
     Random<bit<32>>() random_number_generator;
     // instantiate a Hash extern named 'hash'
     Hash<bit<HASH_WIDTH>>(HashAlgorithm_t.CRC16) hash;
+
+    // DirectRegister<bit<32>>(0) packet_counter;
+    // DirectRegisterAction<bit<32>,bit<32>>(packet_counter) inc_packet_counter_get_div = {
+    //     void apply(inout bit<32> value, out bit<32> rv) {
+    //         value = value |+| 1;
+    //         rv = value >> THETA_SHIFT;
+    //     }
+    // }
 
     Register<bit<32>,_>(REGISTER_ARRAY_SIZE, 0) counters_stage0;
     RegisterAction<bit<32>,_,bit<32>>(counters_stage0) inc_counter_and_read = {
@@ -241,7 +251,6 @@ control MyIngress(inout header_t hdr,
         generate_hash_and_update_count();
         approximate_coin_flip.apply(); // masks the ig_md.random_number, depending on the counter's value
         
-        
         if( ig_md.random_number == 0 ){
             @stage(2) {
                 ig_md.flow_id_stage1_part1_match=replace_flow_id_stage1_part1.execute(ig_md.index, ig_md.flow_id_stage1_part1_old);
@@ -285,6 +294,7 @@ control MyIngress(inout header_t hdr,
         }
         hdr.sketch.freq_estimation = (bit<32>)ig_md.packet_count;
         hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
+        hdr.sketch.number_of_id_stages = 3;
         hdr.sketch.setValid();
     }
 }
