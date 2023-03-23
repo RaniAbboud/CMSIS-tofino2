@@ -117,10 +117,10 @@ control MyIngress(inout header_t hdr,
      ************************************************************/
     Random<bit<INSERTION_PROB_BITS>>() random_number_generator;
     Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16) hash_count_stage1; // crc_16
-    Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x10589, false, false, false, 0x0001, 0x0001)) hash_count_stage2; // crc_16_dect
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x18005, true, false, false, 0x0, 0x0)) hash_id_stage1;        // crc_16
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x10589, false, false, false, 0x0001, 0x0001)) hash_id_stage2; // crc_16_dect
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x13D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
+    Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_count_stage2; // crc_16_dect
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8005, true, false, false, 0x0, 0x0)) hash_id_stage1;        // crc_16
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_id_stage2; // crc_16_dect
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x3D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
 
     DirectRegister<int<32>>(0) packet_counter;
     DirectRegisterAction<int<32>,int<32>>(packet_counter) inc_and_get_packet_counter = {
@@ -226,8 +226,8 @@ control MyIngress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<64>,_,bool>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { 
-        void apply(inout bit<64> value, out bool match){ 
+    RegisterAction<bit<64>,_,bit<64>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { 
+        void apply(inout bit<64> value){ 
             value = ig_md.flow_id_stage2_part1_old; 
         }
     };
@@ -240,8 +240,8 @@ control MyIngress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<64>,_,bool>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { 
-        void apply(inout bit<64> value, out bool match){ 
+    RegisterAction<bit<64>,_,bit<64>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { 
+        void apply(inout bit<64> value){ 
             value = ig_md.flow_id_stage2_part2_old; 
         }
     };
