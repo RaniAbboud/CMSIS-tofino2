@@ -9,7 +9,8 @@
 #define HASH_WIDTH_COUNT_STAGE 16
 #define HASH_WIDTH_ID_STAGE 16
 
-#define THETA_SHIFT 12
+#define THETA 2048
+
 #define INSERTION_PROB_BITS 8
 
 
@@ -33,6 +34,11 @@ header voting_sketch_t {
 struct header_t {
     ethernet_t              ethernet;
     voting_sketch_t         sketch;
+}
+
+struct pair {
+    bit<32> high;
+    bit<32> low;
 }
 
 /*
@@ -122,11 +128,16 @@ control MyIngress(inout header_t hdr,
     Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_id_stage2; // crc_16_dect
     Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x3D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
 
-    DirectRegister<int<32>>(0) packet_counter;
-    DirectRegisterAction<int<32>,int<32>>(packet_counter) inc_and_get_packet_counter = {
-        void apply(inout int<32> value, out int<32> rv) {
-            value = value |+| 1;
-            rv = value;
+    DirectRegister<pair>({0,0}) packet_counter;
+    DirectRegisterAction<pair,bit<32>>(packet_counter) inc_packet_counter_get_threshold = {
+        void apply(inout pair value, out bit<32> rv) {
+            if(value.low == THETA-1){
+                value.high = value.high |+| 1;
+                value.low = 0;
+            } else {
+                value.low = value.low |+| 1;
+            }
+            rv = value.high;
         }
     };
 
@@ -355,16 +366,15 @@ control MyIngress(inout header_t hdr,
 
     apply {
         ig_md.flow_id_match_count = 0;
-        // calculate the threshold N//Theta
         get_id_stage1_hash();
         get_count_stage1_hash();
         get_count_stage2_hash();
-        int<32> packet_count = inc_and_get_packet_counter.execute(); 
-        ig_md.insertion_threshold = packet_count >> THETA_SHIFT;
-
+        @stage(0){
+            ig_md.insertion_threshold = (int<32>)inc_packet_counter_get_threshold.execute();
+        }
         int<32> stage1_count;
         int<32> stage2_count;
-        @stage(2){
+        @stage(1){
             stage1_count = inc_counter_and_read_stage1.execute(ig_md.count_stage1_index, ig_md.stage1_count_ok);
             stage2_count = inc_counter_and_read_stage2.execute(ig_md.count_stage2_index, ig_md.stage2_count_ok);
         }
@@ -373,15 +383,15 @@ control MyIngress(inout header_t hdr,
         
         generate_random_number();
         if(ig_md.stage1_count_ok && ig_md.stage2_count_ok && ig_md.random_number == 0){
-                    @stage(3){
+                    @stage(2){
                         ig_md.flow_id_stage1_part1_old=replace_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
                         ig_md.flow_id_stage1_part2_old=replace_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
                     }
-                    @stage(4){
+                    @stage(3){
                         stage2_replace_part1();
                         stage2_replace_part2();
                     }
-                    @stage(5){
+                    @stage(4){
                         stage3_replace_part1();
                         stage3_replace_part2();
                     }
@@ -391,11 +401,11 @@ control MyIngress(inout header_t hdr,
                     ig_md.flow_id_stage2_part1_old=ig_md.flow_id_part1_original;
                     ig_md.flow_id_stage2_part2_old=ig_md.flow_id_part2_original;
 
-                    @stage(3){
+                    @stage(2){
                         ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
                         ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
                     }
-                    @stage(4){ 
+                    @stage(3){ 
                         // // update match count stage1
                         if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
                             ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
@@ -403,7 +413,7 @@ control MyIngress(inout header_t hdr,
                         stage2_match_part1();
                         stage2_match_part2();
                     }
-                    @stage(5){
+                    @stage(4){
                         stage3_match_part1();
                         stage3_match_part2();
                         // update match count stage2
@@ -411,7 +421,7 @@ control MyIngress(inout header_t hdr,
                             ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
                         }
                     }
-                    @stage(6){
+                    @stage(5){
                         // update match count stage3
                         if (ig_md.flow_id_stage3_part1_match && ig_md.flow_id_stage3_part2_match){
                             ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
