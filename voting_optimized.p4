@@ -11,6 +11,8 @@
 #define HASH_WIDTH_COUNT_STAGE 16
 #define HASH_WIDTH_ID_STAGE 16
 
+#define ID_REG_SIZE_BITS 32
+
 #define THETA 2048
 
 #define INSERTION_PROB_BITS 8
@@ -57,13 +59,13 @@ struct metadata_t {
     bit<COUNTER_ARRAY_INDEX_BITS> count_way2_index;
     bit<ID_ARRAY_INDEX_BITS> id_stage1_index;
     // 128-bit flow ID
-    bit<64> flow_id_stage1_part1_old;
-    bit<64> flow_id_stage1_part2_old;
-    bit<64> flow_id_stage2_part1_old;
-    bit<64> flow_id_stage2_part2_old;
+    bit<ID_REG_SIZE_BITS> flow_id_stage1_part1_old;
+    bit<ID_REG_SIZE_BITS> flow_id_stage1_part2_old;
+    bit<ID_REG_SIZE_BITS> flow_id_stage2_part1_old;
+    bit<ID_REG_SIZE_BITS> flow_id_stage2_part2_old;
   
-    bit<64> flow_id_part1_original; // used as a constant
-    bit<64> flow_id_part2_original; // used as a constant
+    bit<ID_REG_SIZE_BITS> flow_id_part1_original; // used as a constant
+    bit<ID_REG_SIZE_BITS> flow_id_part2_original; // used as a constant
 
     bool flow_id_stage1_part1_match;
     bool flow_id_stage1_part2_match;
@@ -95,14 +97,14 @@ parser MyIngressParser(packet_in packet,
         tofino_parser.apply(packet, ig_intr_md);
         packet.extract(hdr.ethernet);
 
-        ig_md.flow_id_part1_original = (bit<64>)hdr.ethernet.srcAddr;
-        ig_md.flow_id_part2_original = (bit<64>)hdr.ethernet.dstAddr;
+        ig_md.flow_id_part1_original = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.srcAddr;
+        ig_md.flow_id_part2_original = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.dstAddr;
 
         // default values for `flow_id_stage{1/2}_part{1/2}` are later used in hash/index calculations
-        ig_md.flow_id_stage1_part1_old = (bit<64>)hdr.ethernet.srcAddr;
-        ig_md.flow_id_stage1_part2_old = (bit<64>)hdr.ethernet.dstAddr;
-        ig_md.flow_id_stage2_part1_old = (bit<64>)hdr.ethernet.srcAddr;
-        ig_md.flow_id_stage2_part2_old = (bit<64>)hdr.ethernet.dstAddr;
+        ig_md.flow_id_stage1_part1_old = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.srcAddr;
+        ig_md.flow_id_stage1_part2_old = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.dstAddr;
+        ig_md.flow_id_stage2_part1_old = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.srcAddr;
+        ig_md.flow_id_stage2_part2_old = (bit<ID_REG_SIZE_BITS>)hdr.ethernet.dstAddr;
 
         ig_md.flow_id_stage1_part1_match = false;
         ig_md.flow_id_stage1_part2_match = false;
@@ -174,23 +176,23 @@ control MyIngress(inout header_t hdr,
     };
 
     // ID Stage #1
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage1_part1;
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage1_part2;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage1_part1;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage1_part2;
     // ID Stage #2
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage2_part1;
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage2_part2;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage2_part1;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage2_part2;
     // ID Stage #3
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part1;
-    Register<bit<64>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part2;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part1;
+    Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part2;
 
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>, bit<64>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { 
-        void apply(inout bit<64> value, out bit<64> old_flow_id_part){
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){
             old_flow_id_part = value;
             value = ig_md.flow_id_part1_original;
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part1) match_flow_id_stage1_part1 = { 
-        void apply(inout bit<64> value, out bool match){
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part1) match_flow_id_stage1_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part1_original){
                 match = true;
             } else {
@@ -198,14 +200,14 @@ control MyIngress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>, bit<64>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { 
-        void apply(inout bit<64> value, out bit<64> old_flow_id_part){ 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
             old_flow_id_part = value; 
             value = ig_md.flow_id_part2_original; 
         }
     }; 
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part2) match_flow_id_stage1_part2 = { 
-        void apply(inout bit<64> value, out bool match){
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part2) match_flow_id_stage1_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part2_original){
                 match = true;
             } else {
@@ -213,43 +215,14 @@ control MyIngress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bit<64>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { 
-        void apply(inout bit<64> value, out bit<64> old_flow_id_part){ 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
             old_flow_id_part = value; 
             value = ig_md.flow_id_stage1_part1_old; 
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part1) match_flow_id_stage2_part1 = { 
-        void apply(inout bit<64> value, out bool match){
-            if(value == ig_md.flow_id_part1_original){ // TODO: once I fixed the typo (part2->part1) I got compilation error ("cannot place table")
-                match = true;
-            } else {
-                match = false;
-            }
-        }
-    };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bit<64>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { 
-        void apply(inout bit<64> value, out bit<64> old_flow_id_part){ 
-            old_flow_id_part = value; 
-            value = ig_md.flow_id_stage1_part2_old; 
-        }
-    };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part2) match_flow_id_stage2_part2 = { 
-        void apply(inout bit<64> value, out bool match){
-            if(value == ig_md.flow_id_part2_original){
-                match = true;
-            } else {
-                match = false;
-            }
-        }
-    };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bit<64>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { 
-        void apply(inout bit<64> value){ 
-            value = ig_md.flow_id_stage2_part1_old; 
-        }
-    };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part1) match_flow_id_stage3_part1 = { 
-        void apply(inout bit<64> value, out bool match){
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part1) match_flow_id_stage2_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part1_original){
                 match = true;
             } else {
@@ -257,13 +230,42 @@ control MyIngress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bit<64>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { 
-        void apply(inout bit<64> value){ 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
+            old_flow_id_part = value; 
+            value = ig_md.flow_id_stage1_part2_old; 
+        }
+    };
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part2) match_flow_id_stage2_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
+            if(value == ig_md.flow_id_part2_original){
+                match = true;
+            } else {
+                match = false;
+            }
+        }
+    };
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value){ 
+            value = ig_md.flow_id_stage2_part1_old; 
+        }
+    };
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part1) match_flow_id_stage3_part1 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
+            if(value == ig_md.flow_id_part1_original){
+                match = true;
+            } else {
+                match = false;
+            }
+        }
+    };
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value){ 
             value = ig_md.flow_id_stage2_part2_old; 
         }
     };
-    RegisterAction<bit<64>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part2) match_flow_id_stage3_part2 = { 
-        void apply(inout bit<64> value, out bool match){
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part2) match_flow_id_stage3_part2 = { 
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part2_original){
                 match = true;
             } else {
