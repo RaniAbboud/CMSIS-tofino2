@@ -1,40 +1,47 @@
 from scapy.all import *
 import time
+import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
+import numpy as np
 
 UDP.payload_guess = []
 TCP.payload_guess = []
 ICMP.payload_guess = []
 
+sketch_name = "CMSIS"
+V1 = sketch_name + '-V1'
+V2 = sketch_name + '-V2'
+V3 = sketch_name + '-V3'
+CMS = 'Lite'
+
 pcap_file_path = "/home/srani/caida/caida_part1.pcap"
 
-theta = 2048
+theta = 1000
 trace_prefix_ignore_size = 1000000
-trace_max_size = 3000000
-required_matches_for_hh = 2
-batch_size=1000
+trace_max_size = 20000000
+batch_size=10000
 
 clean_counter = 0
 dirty_counter = 0
 real_counts = {}
 mse = 0
 
-fp_num = 0
-tp_num = 0
-fn_num = 0
-tn_num = 0
+class SketchStatistics:
+    def __init__(self) -> None:
+        self.fp_num = 0
+        self.tp_num = 0
+        self.fn_num = 0
+        self.tn_num = 0
 
-fp_num_v2 = 0
-tp_num_v2 = 0
-fn_num_v2 = 0
-tn_num_v2 = 0
-
-fp_num_cms = 0
-tp_num_cms = 0
-fn_num_cms = 0
-tn_num_cms = 0
+stats = {
+    CMS: SketchStatistics(),
+    V1: SketchStatistics(),
+    V2: SketchStatistics(),
+    V3: SketchStatistics()
+}
 
 def make_key(packet):
-    key = f'{packet[IP].src},{packet[IP].dst,{packet[IP].proto}}'
+    key = f'{packet[IP].src},{packet[IP].dst},{packet[IP].proto}'
     if TCP in packet:
         key = f'{key},{packet[TCP].sport},{packet[TCP].dport}'
     elif UDP in packet:
@@ -44,22 +51,9 @@ def make_key(packet):
 def sniffer():
     global clean_counter
     global mse
-    global fp_num
-    global tp_num
-    global fn_num
-    global tn_num
+    global stats
 
-    global fp_num_v2
-    global tp_num_v2
-    global fn_num_v2
-    global tn_num_v2
-
-    global fp_num_cms
-    global tp_num_cms
-    global fn_num_cms
-    global tn_num_cms
-
-    packets=sniff(iface='veth1', filter="ether src cc:cc:cc:cc:cc:cc" , count=batch_size, timeout=10) # only get response packets
+    packets=sniff(iface='veth1', filter="ether src cc:cc:cc:cc:cc:cc" , count=batch_size, timeout=60) # only get response packets
     print(f'Received {len(packets)} packets')
     for packet in packets:
         try:
@@ -80,53 +74,75 @@ def sniffer():
             else:
                 raise Exception(f'Neither Raw nor Padding exist in packet: {packet}')
             # MSE
-            freq_est = int.from_bytes(packet_raw[2:6],byteorder='big')
+            freq_est = int.from_bytes(packet_raw[3:7],byteorder='big')
             mse += (freq_est-real_counts[flow_id])**2
             # HH
             match_count = packet_raw[0]
             hh_label = packet_raw[1] == 1
+            flow_inserted = packet_raw[2] == 1
             if real_counts[flow_id] >= clean_counter/theta:
                 # Ground truth: HH
-                if match_count >= required_matches_for_hh: 
+                # V1
+                if (match_count >= 1 or flow_inserted) and hh_label: 
                     # Correctly classified as HH by our sketch
-                    tp_num += 1
+                    stats[V1].tp_num += 1
                 else:
                     # Missed by our sketch
-                    fn_num += 1
+                    stats[V1].fn_num += 1
                 # V2
-                if match_count >= required_matches_for_hh and hh_label: 
+                if (match_count >= 2 or flow_inserted) and hh_label: 
                     # Correctly classified as HH by our sketch
-                    tp_num_v2 += 1
+                    stats[V2].tp_num += 1
                 else:
                     # Missed by our sketch
-                    fn_num_v2 += 1
+                    stats[V2].fn_num += 1
+                # V3
+                if (match_count >= 3 or flow_inserted) and hh_label: 
+                    # Correctly classified as HH by our sketch
+                    stats[V3].tp_num += 1
+                else:
+                    # Missed by our sketch
+                    stats[V3].fn_num += 1
                 # CMS
                 if hh_label:
-                    tp_num_cms += 1
+                    stats[CMS].tp_num += 1
                 else:
-                    fn_num_cms += 1
+                    stats[CMS].fn_num += 1
             else:
                 # Ground truth: non-HH
-                if match_count >= required_matches_for_hh: 
+                # V1
+                if (match_count >= 1 or flow_inserted) and hh_label: 
                     # Incorrectly classified as HH by our sketch
-                    fp_num += 1
+                    stats[V1].fp_num += 1
                 else:
                     # Correctly not classified as HH
-                    tn_num += 1
+                    stats[V1].tn_num += 1
                 # V2
-                if match_count >= required_matches_for_hh and hh_label:
+                if (match_count >= 2 or flow_inserted) and hh_label:
                     # Incorrectly classified as HH by our sketch
-                    fp_num_v2 += 1
+                    stats[V2].fp_num += 1
                 else:
                     # Correctly not classified as HH
-                    tn_num_v2 += 1            
+                    stats[V2].tn_num += 1
+                # V3
+                if (match_count >= 3 or flow_inserted) and hh_label:
+                    # Incorrectly classified as HH by our sketch
+                    stats[V3].fp_num += 1
+                else:
+                    # Correctly not classified as HH
+                    stats[V3].tn_num += 1
                 # CMS
                 if hh_label:
-                    fp_num_cms += 1
+                    stats[CMS].fp_num += 1
                 else:
-                    tn_num_cms += 1
+                    stats[CMS].tn_num += 1
         except Exception as e:
             print(e)
+    try:
+        print('clean_counter=',clean_counter)
+        print_stats()
+    except Exception as e:
+        pass
     return
             
 
@@ -166,34 +182,71 @@ def iterate_pcap(pcap_path):
             try:
                 t = threading.Thread(target=sniffer)
                 t.start()
-                time.sleep(0.2) # to make sure that the sniffer has started sniffing
+                time.sleep(0.5) # to make sure that the sniffer has started sniffing
                 # send batch to switch
                 sendp(clean_batch, iface='veth1')
                 t.join()  # wait until sniffer is done
                 clean_batch = []
             except Exception as e:
                 print('srp failed:', e)
-
             print('dirty_counter=', dirty_counter)
+            
+def print_stats():
+    global stats
+    global mse
+    global clean_counter
+
+    print(f'MSE={mse/clean_counter}') 
+    for sketch in [V1,V2,V3,CMS]:
+        sketch_stats = stats[sketch]
+        fpr = sketch_stats.fp_num/(sketch_stats.fp_num+sketch_stats.tp_num)
+        fnr = sketch_stats.fn_num/(sketch_stats.fn_num+sketch_stats.tn_num)
+        acc = (sketch_stats.tp_num+sketch_stats.tn_num)/(sketch_stats.fp_num+sketch_stats.fn_num+sketch_stats.tp_num+sketch_stats.tn_num)
+        precision = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fp_num)
+        recall = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fn_num)
+        print(f'*** {sketch} ***: FPR={fpr:.5f}, FNR={fnr:.5f}, Accuracy={acc:.5f}, Precision={precision:.5f}, Recall={recall:.5f}')
+
 
 if __name__ == "__main__":
     iterate_pcap(pcap_path=pcap_file_path)
     print('final dirty_counter=',dirty_counter)
     print('final clean_counter=',clean_counter)
 
-    print('*** Our Sketch ***')
-    print('MSE=',mse/clean_counter)
-    print('FPR=',fp_num/(fp_num+tp_num))
-    print('FNR=',fn_num/(fn_num+tn_num))
-
-    print('*** Our Sketch V2 ***')
-    print('FPR=',fp_num_v2/(fp_num_v2+tp_num_v2))
-    print('FNR=',fn_num_v2/(fn_num_v2+tn_num_v2))
-
-    print('*** CMS ***')
-    print('FPR=',fp_num_cms/(fp_num_cms+tp_num_cms))
-    print('FNR=',fn_num_cms/(fn_num_cms+tn_num_cms))
-
+    print_stats()
     
-
+    with open('results.txt', 'w') as f:
+        for sketch in [V1,V2,V3,CMS]:
+            sketch_stats = stats[sketch]
+            f.write(f'*** Sketch {sketch} ***')
+            fpr = sketch_stats.fp_num/(sketch_stats.fp_num+sketch_stats.tp_num)
+            fnr = sketch_stats.fn_num/(sketch_stats.fn_num+sketch_stats.tn_num)
+            acc = (sketch_stats.tp_num+sketch_stats.tn_num)/(sketch_stats.fp_num+sketch_stats.fn_num+sketch_stats.tp_num+sketch_stats.tn_num)
+            precision = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fp_num)
+            recall = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fn_num)
+            f.write(f'FPR={fpr}, FNR={fnr}, Accuracy={acc}, Precision={precision}, Recall={recall}\n')
+        
+    # set width of bar
+    barWidth = 0.33
+    fig = plt.subplots(figsize =(10, 5))
+    
+    FPR = [stats[sketch].fp_num/(stats[sketch].fp_num+stats[sketch].tp_num) for sketch in stats.keys()]
+    FNR = [stats[sketch].fn_num/(stats[sketch].fn_num+stats[sketch].tn_num) for sketch in stats.keys()]
+     
+    # Set position of bar on X axis
+    br1 = np.arange(len(FPR))
+    br2 = [x + barWidth for x in br1]
+     
+    # Make the plot
+    plt.bar(br1, FPR, color ='b', width = barWidth,
+            edgecolor ='grey', label ='FPR')
+    plt.bar(br2, FNR, color ='r', width = barWidth,
+            edgecolor ='grey', label ='FNR')
+     
+    # Adding Xticks
+    plt.xticks([r + barWidth for r in range(len(FPR))],
+            [sketch for sketch in stats.keys()], fontsize='medium')
+    plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
+    plt.title(f"Theta={theta}, |Trace|={clean_counter}")
+    plt.legend()
+    plt.show(block=True)
     

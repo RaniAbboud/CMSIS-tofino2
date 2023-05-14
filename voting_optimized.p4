@@ -3,19 +3,19 @@
 #include <t2na.p4>
 
 /* CONSTANTS */
-#define COUNTER_ARRAY_SIZE 8192
-#define COUNTER_ARRAY_INDEX_BITS 13
-#define ID_ARRAY_SIZE 256
-#define ID_ARRAY_INDEX_BITS 8
+#define COUNTER_ARRAY_SIZE 16384
+#define COUNTER_ARRAY_INDEX_BITS 14
+#define ID_ARRAY_SIZE 128
+#define ID_ARRAY_INDEX_BITS 7
 
 #define HASH_WIDTH_COUNT_STAGE 16
 #define HASH_WIDTH_ID_STAGE 16
 
 #define ID_REG_SIZE_BITS 32
 
-#define THETA 2048
+#define THETA 1000
 
-#define INSERTION_PROB_BITS 8
+#define INSERTION_PROB_BITS 7
 
 typedef bit<48> mac_addr_t;
 typedef bit<32> ipv4_addr_t;
@@ -36,6 +36,7 @@ header ethernet_h {
 header voting_sketch_t {
     bit<8> flow_id_match_count;
     bit<8> threshold_passed;
+    bit<8> inserted;
     bit<32> freq_estimation;
 }
 
@@ -97,7 +98,7 @@ struct pair {
  */
 @flexible 
 struct metadata_t {
-    bit<8> random_number;
+    bit<INSERTION_PROB_BITS> random_number;
     // indexes
     bit<COUNTER_ARRAY_INDEX_BITS> count_way1_index;
     bit<COUNTER_ARRAY_INDEX_BITS> count_way2_index;
@@ -230,8 +231,8 @@ control MyIngress(inout header_t hdr,
     Random<bit<INSERTION_PROB_BITS>>() random_number_generator;
     Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16) hash_count_way1; // crc_16
     Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_count_way2; // crc_16_dect
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8005, true, false, false, 0x0, 0x0)) hash_id_stage1;        // crc_16
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_id_stage2; // crc_16_dect
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8005, true, false, false, 0x0, 0x0)) hash_id_stage1; 
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8BB7, false, false, false, 0x0001, 0x0001)) hash_id_stage2;
     Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x3D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
 
     DirectRegister<pair>({0,0}) packet_counter;
@@ -684,6 +685,7 @@ control MyIngress(inout header_t hdr,
         
         generate_random_number();
         if(ig_md.stage1_count_ok && ig_md.stage2_count_ok && ig_md.random_number == 0){
+                    hdr.sketch.inserted = 1;
                     @stage(2){
                         ig_md.flow_id_stage1_part1_old=replace_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
                         ig_md.flow_id_stage1_part2_old=replace_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
@@ -703,6 +705,7 @@ control MyIngress(inout header_t hdr,
                         stage3_replace_part4();
                     }
         } else {
+                    hdr.sketch.inserted = 0;
                     @stage(2){
                         ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
                         ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
@@ -744,9 +747,9 @@ control MyIngress(inout header_t hdr,
         hdr.sketch.flow_id_match_count = ig_md.flow_id_match_count;
         hdr.sketch.setValid();
 
-        hdr.ipv4.total_len = hdr.ipv4.total_len + 6; // The size of the custom sketch header is 6 bytes.
+        hdr.ipv4.total_len = hdr.ipv4.total_len + 7; // The size of the custom sketch header is 7 bytes.
         if(hdr.udp.isValid()){
-            hdr.udp.hdr_length = hdr.udp.hdr_length + 6;
+            hdr.udp.hdr_length = hdr.udp.hdr_length + 7;
         }
         
         ig_tm_md.bypass_egress = 1;
