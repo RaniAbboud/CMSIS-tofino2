@@ -3,6 +3,8 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 import numpy as np
+import json
+from os import listdir
 
 UDP.payload_guess = []
 TCP.payload_guess = []
@@ -12,11 +14,10 @@ sketch_name = "CMSIS"
 V1 = sketch_name + '-M1'
 V2 = sketch_name + '-M2'
 V3 = sketch_name + '-M3'
-CMS = 'Lite'
+CMS = sketch_name + '-M0'
 
-pcap_file_path = "/home/srani/caida/caida_part1.pcap"
 caida_year = 18
-parsed_traces_directory = f'/home/srani/python-simulations/parsed_traces/caida_{caida_year}/'
+traces_directory = f'/home/srani/python-simulations/raw_traces/caida_{caida_year}/'
 
 theta = 1000
 trace_prefix_ignore_size = 100000 # 100k
@@ -150,12 +151,15 @@ def sniffer():
 
 def iterate_pcap(pcap_path):
     global dirty_counter
-    reader = PcapReader(pcap_file_path)
+    reader = PcapReader(pcap_path)
     clean_batch = []
     while True:
         if clean_counter >= trace_max_size:
             return
-        packet = next(reader)
+        try:
+            packet = next(reader)
+        except Exception:
+            return
         if packet is None:
             return
         dirty_counter += 1
@@ -210,23 +214,33 @@ def print_stats():
 
 
 if __name__ == "__main__":
-    iterate_pcap(pcap_path=pcap_file_path)
+    trace_file_name = sorted(listdir(traces_directory))[0] # take the first file
+
+    iterate_pcap(pcap_path=traces_directory + trace_file_name)
     print('final dirty_counter=',dirty_counter)
     print('final clean_counter=',clean_counter)
 
-    print_stats()
-    
-    with open('results.txt', 'w') as f:
+    # save statistics to file
+    with open(f"caida{caida_year}_th{theta//1000}k.json", "w") as stats_file:
+        pretty_stats = {}
         for sketch in [V1,V2,V3,CMS]:
             sketch_stats = stats[sketch]
-            f.write(f'*** Sketch {sketch} ***')
             fpr = sketch_stats.fp_num/(sketch_stats.fp_num+sketch_stats.tp_num)
             fnr = sketch_stats.fn_num/(sketch_stats.fn_num+sketch_stats.tn_num)
             acc = (sketch_stats.tp_num+sketch_stats.tn_num)/(sketch_stats.fp_num+sketch_stats.fn_num+sketch_stats.tp_num+sketch_stats.tn_num)
             precision = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fp_num)
             recall = sketch_stats.tp_num/(sketch_stats.tp_num+sketch_stats.fn_num)
-            f.write(f'FPR={fpr}, FNR={fnr}, Accuracy={acc}, Precision={precision}, Recall={recall}\n')
-        
+            pretty_stats[sketch] = {
+                'fpr': fpr,
+                'fnr': fnr,
+                'acc': acc,
+                'precision': precision,
+                'recall': recall
+            }
+        json.dump(pretty_stats, stats_file, indent=4)
+
+    print_stats()
+    
     # set width of bar
     barWidth = 0.33
     fig = plt.subplots(figsize =(10, 5))
