@@ -2,6 +2,6 @@
 This repository contains a P4 implementation of the CMSIS heavy-hitter detection / frequency estimation algorithm.
 The implementation was designed specifically to be run on Intel's Tofino 2 programmable switch.
 
-Our implementation (cmsis.p4) consumes 6 pipeline stages out of the 20 stages available on Tofino 2. This implementation defines 64-bit registers that store 5-tuple flow identifiers.
+The implementation (_cmsis.p4_) consumes 6 pipeline stages out of the 20 stages available on Tofino 2. This implementation defines 64-bit registers that store 5-tuple flow identifiers.
 
-We also provide an implementation (cmsis_32bit.p4) that uses 32-bit registers instead of 64-bit regisers, and therefore uses more registers to store the 5-tuple flow identifiers. The implementation with 32-bit registers consumes 8 pipeline stages.
+We also provide an implementation (_cmsis_32bit.p4_) that uses 32-bit registers instead of 64-bit regisers as the latter are not available on Tofino 1. This 32-bit version needs twice the number of registers needed by the 64-bit version to store the 5-tuple flow identifiers. The 32-bit version consumes 8 pipeline stages.
