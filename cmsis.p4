@@ -33,7 +33,7 @@ header ethernet_h {
     bit<16> ether_type;
 }
 
-header voting_sketch_t {
+header sketch_t {
     bit<8> flow_id_match_count;
     bit<8> threshold_passed;
     bit<8> inserted;
@@ -81,7 +81,7 @@ struct header_t {
     ipv4_h ipv4;
     tcp_h tcp;
     udp_h udp;
-    voting_sketch_t         sketch;
+    sketch_t         sketch;
 }
 
 // Utility struct used to define registers that hold pairs of values 
@@ -133,7 +133,7 @@ struct metadata_t {
 /*************************************************************************
  ***********************  P A R S E R  ***********************************
  *************************************************************************/
-parser MyIngressParser(packet_in packet,
+parser IngressParser(packet_in packet,
                 out header_t hdr,
                 out metadata_t ig_md,
                 out ingress_intrinsic_metadata_t ig_intr_md) {
@@ -198,7 +198,7 @@ parser MyIngressParser(packet_in packet,
 /*************************************************************************
  **************  I N G R E S S   P R O C E S S I N G   *******************
  *************************************************************************/
-control MyIngress(inout header_t hdr,
+control Ingress(inout header_t hdr,
                   inout metadata_t ig_md,
                   in ingress_intrinsic_metadata_t ig_intr_md,
                   in ingress_intrinsic_metadata_from_parser_t ig_prsr_md,
@@ -535,7 +535,7 @@ control MyIngress(inout header_t hdr,
 /*************************************************************************
  *****************  I N G R E S S   D E P A R S E R  *********************
  *************************************************************************/
-control MyIngressDeparser(
+control IngressDeparser(
         packet_out packet, 
         inout header_t hdr, 
         in metadata_t ig_md,
@@ -546,21 +546,12 @@ control MyIngressDeparser(
 }
 
 /*************************************************************************
- ****************  E G R E S S   P R O C E S S I N G   *******************
- *************************************************************************/
-// control MyEgress(inout header_t hdr,
-//                  inout metadata_t meta,
-//                  inout standard_metadata_t standard_metadata) {
-//     apply { }
-// }
-
-/*************************************************************************
  ***********************  S W I T T C H **********************************
  *************************************************************************/
 Pipeline(
-    MyIngressParser(),
-    MyIngress(),
-    MyIngressDeparser(),
+    IngressParser(),
+    Ingress(),
+    IngressDeparser(),
     EmptyEgressParser(),
     EmptyEgress(),
     EmptyEgressDeparser()
