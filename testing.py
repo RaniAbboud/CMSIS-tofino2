@@ -9,16 +9,18 @@ TCP.payload_guess = []
 ICMP.payload_guess = []
 
 sketch_name = "CMSIS"
-V1 = sketch_name + '-V1'
-V2 = sketch_name + '-V2'
-V3 = sketch_name + '-V3'
+V1 = sketch_name + '-M1'
+V2 = sketch_name + '-M2'
+V3 = sketch_name + '-M3'
 CMS = 'Lite'
 
 pcap_file_path = "/home/srani/caida/caida_part1.pcap"
+caida_year = 18
+parsed_traces_directory = f'/home/srani/python-simulations/parsed_traces/caida_{caida_year}/'
 
 theta = 1000
-trace_prefix_ignore_size = 1000000
-trace_max_size = 20000000
+trace_prefix_ignore_size = 100000 # 100k
+trace_max_size = 10000000 # 10M
 batch_size=10000
 
 clean_counter = 0
