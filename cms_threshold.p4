@@ -8,6 +8,8 @@
 
 #define HASH_WIDTH_COUNT_STAGE 16
 
+#define ID_REG_SIZE_BITS 64
+
 #define THETA 1000
 
 typedef bit<48> mac_addr_t;
@@ -89,7 +91,6 @@ struct pair {
  */
 @flexible 
 struct metadata_t {
-    bit<INSERTION_PROB_BITS> random_number;
     bit<COUNTER_ARRAY_INDEX_BITS> count_way1_index;
     bit<COUNTER_ARRAY_INDEX_BITS> count_way2_index;
 
