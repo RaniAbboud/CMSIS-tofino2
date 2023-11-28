@@ -8,7 +8,7 @@ An alternative implementation (_cmsis_32bit.p4_) uses 32-bit registers instead o
 
 In addition, we provide an implementation (_cms_threshold.p4_) for a simple adaption of Count-Min sketch which performs online heavy hitter detection, but does not support offline retrieval of the heavy hitters' identifiers, as it does not store flow identifiers. This algorithm consumes only 3 pipeline stages.
 
-_Intel&copy; P4 Studio SDE 9.13.1 was used to compile and run _cmsis.p4_. Intel&copy; P4 Studio SDE 9.11.0 was used to compile and run _cmsis_32bit.p4_ and _cms_threshold.p4_. 
+Intel&copy; P4 Studio SDE 9.13.1 was used to compile and run _cmsis.p4_. Intel&copy; P4 Studio SDE 9.11.0 was used to compile and run _cmsis_32bit.p4_ and _cms_threshold.p4_. 
 
 ## Architecture
 ### CMSIS
