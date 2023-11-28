@@ -5,8 +5,8 @@
 /* CONSTANTS */
 #define COUNTER_ARRAY_SIZE 16384
 #define COUNTER_ARRAY_INDEX_BITS 14
-#define ID_ARRAY_SIZE 256
-#define ID_ARRAY_INDEX_BITS 8
+#define ID_ARRAY_SIZE 128
+#define ID_ARRAY_INDEX_BITS 7
 
 #define HASH_WIDTH_COUNT_STAGE 16
 #define HASH_WIDTH_ID_STAGE 16
@@ -58,7 +58,7 @@ header ipv4_h {
 header tcp_h {
     bit<16> src_port;
     bit<16> dst_port;
-    
+
     bit<32> seq_no;
     bit<32> ack_no;
     bit<4> data_offset;
@@ -84,7 +84,7 @@ struct header_t {
     sketch_t         sketch;
 }
 
-// Utility struct used to define registers that hold pairs of values 
+// Utility struct used to define registers that hold pairs of values
 struct pair {
     bit<32> high;
     bit<32> low;
@@ -96,7 +96,7 @@ struct pair {
  * declare the type, but there is no need to instantiate it,
  * because it is done "by the architecture", i.e. outside of P4 functions
  */
-@flexible 
+@flexible
 struct metadata_t {
     bit<INSERTION_PROB_BITS> random_number;
     // indexes
@@ -108,7 +108,7 @@ struct metadata_t {
     bit<ID_REG_SIZE_BITS> flow_id_stage1_part2_old;
     bit<ID_REG_SIZE_BITS> flow_id_stage2_part1_old;
     bit<ID_REG_SIZE_BITS> flow_id_stage2_part2_old;
-  
+
     bit<ID_REG_SIZE_BITS> flow_id_part1_original; // used as a constant
     bit<ID_REG_SIZE_BITS> flow_id_part2_original; // used as a constant
 
@@ -143,7 +143,7 @@ parser IngressParser(packet_in packet,
         tofino_parser.apply(packet, ig_intr_md);
         transition parse_ethernet;
     }
-    
+
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select (hdr.ethernet.ether_type) {
@@ -151,7 +151,7 @@ parser IngressParser(packet_in packet,
             default : reject;
         }
     }
-    
+
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
         /***********   Initializations   ***********/
@@ -160,9 +160,9 @@ parser IngressParser(packet_in packet,
         ig_md.flow_id_stage1_part1_old = hdr.ipv4.src_addr ++ hdr.ipv4.dst_addr;
         ig_md.flow_id_stage2_part1_old = hdr.ipv4.src_addr ++ hdr.ipv4.dst_addr;
 
-        ig_md.flow_id_part2_original= (bit<ID_REG_SIZE_BITS>)hdr.ipv4.protocol;
-        ig_md.flow_id_stage1_part2_old= (bit<ID_REG_SIZE_BITS>)hdr.ipv4.protocol;
-        ig_md.flow_id_stage2_part2_old= (bit<ID_REG_SIZE_BITS>)hdr.ipv4.protocol;
+        ig_md.flow_id_part2_original[31:0] = (bit<32>)hdr.ipv4.protocol;
+        ig_md.flow_id_stage1_part2_old[31:0] = (bit<32>)hdr.ipv4.protocol;
+        ig_md.flow_id_stage2_part2_old[31:0] = (bit<32>)hdr.ipv4.protocol;
 
         ig_md.flow_id_stage1_part1_match = false;
         ig_md.flow_id_stage1_part2_match = false;
@@ -174,10 +174,10 @@ parser IngressParser(packet_in packet,
         transition select(hdr.ipv4.protocol) {
             IP_PROTOCOLS_TCP : parse_tcp;
             IP_PROTOCOLS_UDP : parse_udp;
-            default : accept;
+            default : parse_other;
         }
     }
-    
+
     state parse_tcp {
         packet.extract(hdr.tcp);
         ig_md.flow_id_part2_original[63:32]= hdr.tcp.src_port ++ hdr.tcp.dst_port;
@@ -185,12 +185,20 @@ parser IngressParser(packet_in packet,
         ig_md.flow_id_stage2_part2_old[63:32]= hdr.tcp.src_port ++ hdr.tcp.dst_port;
         transition accept;
     }
-    
+
     state parse_udp {
         packet.extract(hdr.udp);
         ig_md.flow_id_part2_original[63:32]= hdr.udp.src_port ++ hdr.udp.dst_port;
         ig_md.flow_id_stage1_part2_old[63:32]= hdr.udp.src_port ++ hdr.udp.dst_port;
         ig_md.flow_id_stage2_part2_old[63:32]= hdr.udp.src_port ++ hdr.udp.dst_port;
+        transition accept;
+    }
+
+    state parse_other {
+        // set the src/dst ports in the identifier as zero
+        ig_md.flow_id_part2_original[63:32]= 32w0x0;
+        ig_md.flow_id_stage1_part2_old[63:32]= 32w0x0;
+        ig_md.flow_id_stage2_part2_old[63:32]= 32w0x0;
         transition accept;
     }
 }
@@ -209,10 +217,10 @@ control Ingress(inout header_t hdr,
      ************************************************************/
     Random<bit<INSERTION_PROB_BITS>>() random_number_generator;
     Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16) hash_count_way1; // crc_16
-    Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_count_way2; // crc_16_dect
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8005, true, false, false, 0x0, 0x0)) hash_id_stage1; 
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x8BB7, false, false, false, 0x0001, 0x0001)) hash_id_stage2;
-    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CRC16, CRCPolynomial<bit<16>>(0x3D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
+    Hash<bit<HASH_WIDTH_COUNT_STAGE>>(HashAlgorithm_t.CUSTOM, CRCPolynomial<bit<16>>(0x0589, false, false, false, 0x0001, 0x0001)) hash_count_way2; // crc_16_dect
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CUSTOM, CRCPolynomial<bit<16>>(0x8005, true, false, false, 0x0, 0x0)) hash_id_stage1;
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CUSTOM, CRCPolynomial<bit<16>>(0x8BB7, false, false, false, 0x0001, 0x0001)) hash_id_stage2;
+    Hash<bit<HASH_WIDTH_ID_STAGE>>(HashAlgorithm_t.CUSTOM, CRCPolynomial<bit<16>>(0x3D65, true, false, false, 0xFFFF, 0xFFFF)) hash_id_stage3; // crc_16_dnp
 
     DirectRegister<pair>({0,0}) packet_counter;
     DirectRegisterAction<pair,bit<32>>(packet_counter) inc_packet_counter_get_threshold = {
@@ -228,7 +236,7 @@ control Ingress(inout header_t hdr,
     };
 
     Register<int<32>,bit<COUNTER_ARRAY_INDEX_BITS>>(COUNTER_ARRAY_SIZE, 0) reg_counters_stage1;
-    RegisterAction2<int<32>,_,int<32>,bool>(reg_counters_stage1) inc_counter_and_read_stage1 = {
+    RegisterAction2<int<32>,bit<COUNTER_ARRAY_INDEX_BITS>,int<32>,bool>(reg_counters_stage1) inc_counter_and_read_stage1 = {
         void apply(inout int<32> value, out int<32> count, out bool flag) {
             value = value |+| 1;
             count = value;
@@ -241,7 +249,7 @@ control Ingress(inout header_t hdr,
     };
 
     Register<int<32>,bit<COUNTER_ARRAY_INDEX_BITS>>(COUNTER_ARRAY_SIZE, 0) reg_counters_stage2;
-    RegisterAction2<int<32>,_,int<32>,bool>(reg_counters_stage2) inc_counter_and_read_stage2 = {
+    RegisterAction2<int<32>,bit<COUNTER_ARRAY_INDEX_BITS>,int<32>,bool>(reg_counters_stage2) inc_counter_and_read_stage2 = {
         void apply(inout int<32> value,out int<32> count, out bool flag) {
             value = value |+| 1;
             count = value;
@@ -263,13 +271,14 @@ control Ingress(inout header_t hdr,
     Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part1;
     Register<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>>(ID_ARRAY_SIZE, 0) reg_flow_id_stage3_part2;
 
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){
-            old_flow_id_part = value;
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<32>>(reg_flow_id_stage1_part1) replace_flow_id_stage1_part1 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<32> old_flow_id_subpart1, out bit<32> old_flow_id_subpart2){
+            old_flow_id_subpart1 = value[31:0];
+            old_flow_id_subpart2 = value[63:32];
             value = ig_md.flow_id_part1_original;
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part1) match_flow_id_stage1_part1 = { 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part1) match_flow_id_stage1_part1 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part1_original){
                 match = true;
@@ -278,13 +287,14 @@ control Ingress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
-            old_flow_id_part = value; 
-            value = ig_md.flow_id_part2_original; 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>, bit<32>>(reg_flow_id_stage1_part2) replace_flow_id_stage1_part2 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<32> old_flow_id_subpart1, out bit<32> old_flow_id_subpart2){
+            old_flow_id_subpart1 = value[31:0];
+            old_flow_id_subpart2 = value[63:32];
+            value = ig_md.flow_id_part2_original;
         }
-    }; 
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part2) match_flow_id_stage1_part2 = { 
+    };
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage1_part2) match_flow_id_stage1_part2 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part2_original){
                 match = true;
@@ -294,13 +304,14 @@ control Ingress(inout header_t hdr,
         }
     };
 
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
-            old_flow_id_part = value; 
-            value = ig_md.flow_id_stage1_part1_old; 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<32>>(reg_flow_id_stage2_part1) replace_flow_id_stage2_part1 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<32> old_flow_id_subpart1, out bit<32> old_flow_id_subpart2){
+            old_flow_id_subpart1 = value[31:0];
+            old_flow_id_subpart2 = value[63:32];
+            value = ig_md.flow_id_stage1_part1_old;
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part1) match_flow_id_stage2_part1 = { 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part1) match_flow_id_stage2_part1 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part1_original){
                 match = true;
@@ -309,13 +320,14 @@ control Ingress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<ID_REG_SIZE_BITS> old_flow_id_part){ 
-            old_flow_id_part = value; 
-            value = ig_md.flow_id_stage1_part2_old; 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<32>>(reg_flow_id_stage2_part2) replace_flow_id_stage2_part2 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value, out bit<32> old_flow_id_subpart1, out bit<32> old_flow_id_subpart2){
+            old_flow_id_subpart1 = value[31:0];
+            old_flow_id_subpart2 = value[63:32];
+            value = ig_md.flow_id_stage1_part2_old;
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part2) match_flow_id_stage2_part2 = { 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage2_part2) match_flow_id_stage2_part2 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part2_original){
                 match = true;
@@ -325,12 +337,12 @@ control Ingress(inout header_t hdr,
         }
     };
 
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value){ 
-            value = ig_md.flow_id_stage2_part1_old; 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part1) replace_flow_id_stage3_part1 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value){
+            value = ig_md.flow_id_stage2_part1_old;
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part1) match_flow_id_stage3_part1 = { 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part1) match_flow_id_stage3_part1 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part1_original){
                 match = true;
@@ -339,12 +351,12 @@ control Ingress(inout header_t hdr,
             }
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = { 
-        void apply(inout bit<ID_REG_SIZE_BITS> value){ 
-            value = ig_md.flow_id_stage2_part2_old; 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bit<ID_REG_SIZE_BITS>>(reg_flow_id_stage3_part2) replace_flow_id_stage3_part2 = {
+        void apply(inout bit<ID_REG_SIZE_BITS> value){
+            value = ig_md.flow_id_stage2_part2_old;
         }
     };
-    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part2) match_flow_id_stage3_part2 = { 
+    RegisterAction<bit<ID_REG_SIZE_BITS>,bit<ID_ARRAY_INDEX_BITS>,bool>(reg_flow_id_stage3_part2) match_flow_id_stage3_part2 = {
         void apply(inout bit<ID_REG_SIZE_BITS> value, out bool match){
             if(value == ig_md.flow_id_part2_original){
                 match = true;
@@ -360,49 +372,49 @@ control Ingress(inout header_t hdr,
 
     /************ Count stages indices calculation ************/
     action get_count_way1_hash(){
-        ig_md.count_way1_index = (bit<COUNTER_ARRAY_INDEX_BITS>)hash_count_way1.get({ 
+        ig_md.count_way1_index = (bit<COUNTER_ARRAY_INDEX_BITS>)hash_count_way1.get({
             ig_md.flow_id_part1_original,
             ig_md.flow_id_part2_original
         });
     }
     action get_count_way2_hash(){
-        ig_md.count_way2_index = (bit<COUNTER_ARRAY_INDEX_BITS>)hash_count_way2.get({ 
+        ig_md.count_way2_index = (bit<COUNTER_ARRAY_INDEX_BITS>)hash_count_way2.get({
             ig_md.flow_id_part1_original,
             ig_md.flow_id_part2_original
         });
     }
     /************  ID stages indices calculation  ************/
     action get_id_stage1_hash(){
-        ig_md.id_stage1_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage1.get({ 
+        ig_md.id_stage1_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage1.get({
             ig_md.flow_id_part1_original,
             ig_md.flow_id_part2_original
         });
     }
 
     action stage2_replace_part1(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({
             ig_md.flow_id_stage1_part1_old,
             ig_md.flow_id_stage1_part2_old
         });
-        ig_md.flow_id_stage2_part1_old=replace_flow_id_stage2_part1.execute(id_stage2_index);
+        ig_md.flow_id_stage2_part1_old[31:0]=replace_flow_id_stage2_part1.execute(id_stage2_index, ig_md.flow_id_stage2_part1_old[63:32]);
     }
     action stage2_replace_part2(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({
             ig_md.flow_id_stage1_part1_old,
             ig_md.flow_id_stage1_part2_old
         });
-        ig_md.flow_id_stage2_part2_old=replace_flow_id_stage2_part2.execute(id_stage2_index);
+        ig_md.flow_id_stage2_part2_old[31:0]=replace_flow_id_stage2_part2.execute(id_stage2_index, ig_md.flow_id_stage2_part2_old[63:32]);
     }
 
     action stage2_match_part1(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({
             ig_md.flow_id_stage1_part1_old,
             ig_md.flow_id_stage1_part2_old
         });
         ig_md.flow_id_stage2_part1_match=match_flow_id_stage2_part1.execute(id_stage2_index);
     }
     action stage2_match_part2(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage2_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage2.get({
             ig_md.flow_id_stage1_part1_old,
             ig_md.flow_id_stage1_part2_old
         });
@@ -410,31 +422,31 @@ control Ingress(inout header_t hdr,
     }
 
     action stage3_replace_part1(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({
             ig_md.flow_id_stage2_part1_old,
-            ig_md.flow_id_stage2_part2_old 
+            ig_md.flow_id_stage2_part2_old
         });
         replace_flow_id_stage3_part1.execute(id_stage3_index);
     }
     action stage3_replace_part2(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({
             ig_md.flow_id_stage2_part1_old,
-            ig_md.flow_id_stage2_part2_old 
+            ig_md.flow_id_stage2_part2_old
         });
         replace_flow_id_stage3_part2.execute(id_stage3_index);
     }
 
     action stage3_match_part1(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({
             ig_md.flow_id_stage2_part1_old,
-            ig_md.flow_id_stage2_part2_old 
+            ig_md.flow_id_stage2_part2_old
         });
         ig_md.flow_id_stage3_part1_match=match_flow_id_stage3_part1.execute(id_stage3_index);
     }
     action stage3_match_part2(){
-        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({ 
+        bit<ID_ARRAY_INDEX_BITS> id_stage3_index = (bit<ID_ARRAY_INDEX_BITS>)hash_id_stage3.get({
             ig_md.flow_id_stage2_part1_old,
-            ig_md.flow_id_stage2_part2_old 
+            ig_md.flow_id_stage2_part2_old
         });
         ig_md.flow_id_stage3_part2_match=match_flow_id_stage3_part2.execute(id_stage3_index);
     }
@@ -473,13 +485,13 @@ control Ingress(inout header_t hdr,
         } else {
             hdr.sketch.threshold_passed = 0;
         }
-        
+
         generate_random_number();
         if(ig_md.stage1_count_ok && ig_md.stage2_count_ok && ig_md.random_number == 0){
                     hdr.sketch.inserted = 1;
                     @stage(2){
-                        ig_md.flow_id_stage1_part1_old=replace_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
-                        ig_md.flow_id_stage1_part2_old=replace_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
+                        ig_md.flow_id_stage1_part1_old[31:0]=replace_flow_id_stage1_part1.execute(ig_md.id_stage1_index, ig_md.flow_id_stage1_part1_old[63:32]);
+                        ig_md.flow_id_stage1_part2_old[31:0]=replace_flow_id_stage1_part2.execute(ig_md.id_stage1_index, ig_md.flow_id_stage1_part2_old[63:32]);
                     }
                     @stage(3){
                         stage2_replace_part1();
@@ -495,7 +507,7 @@ control Ingress(inout header_t hdr,
                         ig_md.flow_id_stage1_part1_match=match_flow_id_stage1_part1.execute(ig_md.id_stage1_index);
                         ig_md.flow_id_stage1_part2_match=match_flow_id_stage1_part2.execute(ig_md.id_stage1_index);
                     }
-                    @stage(3){ 
+                    @stage(3){
                         // // update match count stage1
                         if (ig_md.flow_id_stage1_part1_match && ig_md.flow_id_stage1_part2_match){
                             ig_md.flow_id_match_count = ig_md.flow_id_match_count + 1;
@@ -527,7 +539,7 @@ control Ingress(inout header_t hdr,
         if(hdr.udp.isValid()){
             hdr.udp.hdr_length = hdr.udp.hdr_length + 7;
         }
-        
+
         ig_tm_md.bypass_egress = 1;
     }
 }
@@ -536,8 +548,8 @@ control Ingress(inout header_t hdr,
  *****************  I N G R E S S   D E P A R S E R  *********************
  *************************************************************************/
 control IngressDeparser(
-        packet_out packet, 
-        inout header_t hdr, 
+        packet_out packet,
+        inout header_t hdr,
         in metadata_t ig_md,
         in ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md) {
     apply {
