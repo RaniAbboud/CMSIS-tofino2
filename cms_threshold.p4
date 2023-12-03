@@ -98,7 +98,6 @@ struct metadata_t {
     bit<ID_REG_SIZE_BITS> flow_id_part1_original; // used as a constant
     bit<ID_REG_SIZE_BITS> flow_id_part2_original; // used as a constant
 
-    // bool should_replace;
     bool stage1_count_ok;
     bool stage2_count_ok;
 

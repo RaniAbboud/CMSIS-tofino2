@@ -131,7 +131,6 @@ struct metadata_t {
     bool flow_id_stage3_part3_match;
     bool flow_id_stage3_part4_match;
 
-    // bool should_replace;
     bool stage1_count_ok;
     bool stage2_count_ok;
 
